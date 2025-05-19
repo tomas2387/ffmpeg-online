@@ -26,6 +26,8 @@ const App = () => {
   const ffmpeg = useRef();
   const currentFSls = useRef([]);
 
+  const [validationResult, setValidationResult] = useState("");
+
   const handleExec = async () => {
     if (!file) {
       return;
@@ -33,6 +35,7 @@ const App = () => {
     setOutputFiles([]);
     setHref("");
     setDownloadFileName("");
+    setValidationResult("");
     try {
       setTip("Loading file into browser");
       setSpinning(true);
@@ -44,55 +47,35 @@ const App = () => {
         );
       }
       currentFSls.current = ffmpeg.current.FS("readdir", ".");
-      setTip("start executing the command");
-      const outputText = await ffmpeg.current.run(
-        '-i',
-        name,
-        '-v', 'error', '-f', 'null',
-        output
-      );
-      console.error(outputText);
-      setSpinning(false);
-      const FSls = ffmpeg.current.FS("readdir", ".");
-      const outputFiles = FSls.filter((i) => !currentFSls.current.includes(i));
-      if (outputFiles.length === 1) {
-        const data = ffmpeg.current.FS("readFile", outputFiles[0]);
-        const type = await fileTypeFromBuffer(data.buffer);
+      setTip("Validating video file...");
 
-        const objectURL = URL.createObjectURL(
-          new Blob([data.buffer], { type: type.mime })
+      // Run FFmpeg with parameters to validate the video file
+      let outputText = "";
+      try {
+        outputText = await ffmpeg.current.run(
+          '-i',
+          name,
+          '-v', 'error', '-f', 'null',
+          '-'
         );
-        setHref(objectURL);
-        setDownloadFileName(outputFiles[0]);
-        message.success(
-          "Run successfully, click the download button to download the output file",
-          10
-        );
-      } else if (outputFiles.length > 1) {
-        var zip = new JSZip();
-        outputFiles.forEach((filleName) => {
-          const data = ffmpeg.current.FS("readFile", filleName);
-          zip.file(filleName, data);
-        });
-        const zipFile = await zip.generateAsync({ type: "blob" });
-        const objectURL = URL.createObjectURL(zipFile);
-        setHref(objectURL);
-        setDownloadFileName("output.zip");
-        message.success(
-          "Run successfully, click the download button to download the output file",
-          10
-        );
-      } else {
-        message.success(
-          "Run successfully, No files are generated, if you want to see the output of the ffmpeg command, please open the console",
-          10
-        );
+        // If we reach here with no errors, the video is valid
+        setValidationResult("✅ Video file is valid and can be processed by FFmpeg.");
+        message.success("Video validation completed successfully", 5);
+      } catch (ffmpegError) {
+        // If FFmpeg throws an error, the video might have issues
+        outputText = ffmpegError.message || "Unknown error occurred during validation";
+        setValidationResult("❌ Video file has issues: " + outputText);
+        message.warning("Video has some issues. See details below.", 5);
       }
+
+      setSpinning(false);
     } catch (err) {
       console.error(err);
+      setSpinning(false);
+      setValidationResult("❌ Error processing file: " + (err.message || "Unknown error"));
       message.error(
-        "Failed to run, please check if the command is correct or open the console to view the error details",
-        10
+        "Failed to validate video. Please try another file.",
+        5
       );
     }
   };
@@ -175,89 +158,116 @@ const App = () => {
         </Spin>
       )}
 
-      <h2 align="center">ffmpeg-online</h2>
+      <h2 align="center">Video Validator</h2>
+      <p align="center" style={{ color: "gray", marginBottom: "20px" }}>
+        A simple tool to check if your video files are valid
+      </p>
 
-      <h4>1. Select file</h4>
+      <h4>Upload your video file</h4>
       <p style={{ color: "gray" }}>
-        Your files will not be uploaded to the server, only processed in the
-        browser
+        Your file will not be uploaded to any server, it will only be processed in your
+        browser for validation
       </p>
       <Dragger
-        multiple
-        beforeUpload={(file, fileList) => {
+        multiple={false}
+        beforeUpload={async (file, fileList) => {
           setFile(file);
-          setFileList((v) => [...v, ...fileList]);
+          setFileList([file]);
           setName(file.name);
+
+          // Automatically run validation when file is uploaded
+          setTimeout(() => {
+            handleExec();
+          }, 100);
+
           return false;
         }}
       >
         <p className="ant-upload-drag-icon">
           <InboxOutlined />
         </p>
-        <p className="ant-upload-text">Click or drag file</p>
+        <p className="ant-upload-text">Click or drag video file to validate</p>
+        <p className="ant-upload-hint">Your file will be processed in the browser and not uploaded to any server</p>
       </Dragger>
-      <h4>2. Set ffmpeg options</h4>
-      <div className="exec">
-        ffmpeg
-        <Input
-          value={inputOptions}
-          placeholder="please enter input options"
-          onChange={(event) => setInputOptions(event.target.value)}
-        />
-        <Input
-          value={name}
-          placeholder="please enter input filename"
-          onChange={(event) => setName(event.target.value)}
-        />
-        <Input
-          value={outputOptions}
-          placeholder="please enter output options"
-          onChange={(event) => setOutputOptions(event.target.value)}
-        />
-        <Input
-          value={output}
-          placeholder="Please enter the download file name"
-          onChange={(event) => setOutput(event.target.value)}
-        />
-        <div className="command-text">
-          ffmpeg {inputOptions} {name} {outputOptions} {output}
+
+      {validationResult && (
+        <div style={{ marginTop: '20px', padding: '15px', border: '1px solid #d9d9d9', borderRadius: '4px', backgroundColor: '#f5f5f5' }}>
+          <h4>Video Validation Result:</h4>
+          <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+            {validationResult}
+          </div>
         </div>
-      </div>
-      <h4>3. Run and get the output file</h4>
-      <Button type="primary" disabled={!Boolean(file)} onClick={handleExec}>
-        run
-      </Button>
-      <br />
-      <br />
-      {href && (
-        <a href={href} download={downloadFileName}>
-          download file
-        </a>
       )}
-      <h4>4. Get other file from file system (use , split)</h4>
-      <p style={{ color: "gray" }}>
-        In some scenarios, the output file contains multiple files. At this
-        time, multiple file names can be separated by commas and typed into the
-        input box below.
-      </p>
-      <Input
-        value={files}
-        placeholder="Please enter the download file name"
-        onChange={(event) => setFiles(event.target.value)}
-      />
-      <Button type="primary" disabled={!Boolean(file)} onClick={handleGetFiles}>
-        confirm
-      </Button>
-      <br />
-      <br />
-      {outputFiles.map((outputFile, index) => (
-        <div key={index}>
-          <a href={outputFile.href} download={outputFile.name}>
-            {outputFile.name}
-          </a>
-          <br />
+
+      {/* Hidden section for advanced users - can be toggled if needed */}
+      <div style={{ display: 'none' }}>
+        <h4>Advanced Options</h4>
+        <div className="exec">
+          ffmpeg
+          <Input
+            value={inputOptions}
+            placeholder="please enter input options"
+            onChange={(event) => setInputOptions(event.target.value)}
+          />
+          <Input
+            value={name}
+            placeholder="please enter input filename"
+            onChange={(event) => setName(event.target.value)}
+          />
+          <Input
+            value={outputOptions}
+            placeholder="please enter output options"
+            onChange={(event) => setOutputOptions(event.target.value)}
+          />
+          <Input
+            value={output}
+            placeholder="Please enter the download file name"
+            onChange={(event) => setOutput(event.target.value)}
+          />
+          <div className="command-text">
+            ffmpeg {inputOptions} {name} {outputOptions} {output}
+          </div>
         </div>
-      ))}
+        <Button type="primary" disabled={!Boolean(file)} onClick={handleExec}>
+          Validate Again
+        </Button>
+      </div>
+
+      {/* Hidden download section - not needed for simple validation */}
+      <div style={{ display: 'none' }}>
+        <br />
+        <br />
+        {href && (
+          <a href={href} download={downloadFileName}>
+            download file
+          </a>
+        )}
+        <h4>4. Get other file from file system (use , split)</h4>
+        <p style={{ color: "gray" }}>
+          In some scenarios, the output file contains multiple files. At this
+          time, multiple file names can be separated by commas and typed into the
+          input box below.
+        </p>
+        <Input
+          value={files}
+          placeholder="Please enter the download file name"
+          onChange={(event) => setFiles(event.target.value)}
+        />
+        <Button type="primary" disabled={!Boolean(file)} onClick={handleGetFiles}>
+          confirm
+        </Button>
+        <br />
+        <br />
+        {outputFiles.map((outputFile, index) => (
+          <div key={index}>
+            <a href={outputFile.href} download={outputFile.name}>
+              {outputFile.name}
+            </a>
+            <br />
+          </div>
+        ))}
+      </div>
+
       <br />
       <br />
 
