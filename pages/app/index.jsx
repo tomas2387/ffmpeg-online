@@ -46,9 +46,9 @@ const App = () => {
       currentFSls.current = ffmpeg.current.FS("readdir", ".");
       setTip("start executing the command");
       const outputText = await ffmpeg.current.run(
-        ['-i'],
+        '-i',
         name,
-        ['-v', 'error', '-f', 'null'],
+        '-v', 'error', '-f', 'null',
         output
       );
       console.error(outputText);
