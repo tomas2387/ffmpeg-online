@@ -3,10 +3,8 @@ import { useEffect, useRef, useState } from "react";
 import { createFFmpeg, fetchFile } from "@ffmpeg/ffmpeg";
 import { InboxOutlined } from "@ant-design/icons";
 import { fileTypeFromBuffer } from "file-type";
-import { Analytics } from "@vercel/analytics/react";
 import numerify from "numerify/lib/index.cjs";
 import qs from "query-string";
-import JSZip from "jszip";
 
 const { Dragger } = Upload;
 
@@ -18,8 +16,6 @@ const App = () => {
   const [files, setFiles] = useState("");
   const [outputFiles, setOutputFiles] = useState([]);
   const [href, setHref] = useState("");
-  const [file, setFile] = useState();
-  const [fileList, setFileList] = useState([]);
   const [name, setName] = useState("input.mp4");
   const [output, setOutput] = useState("output.mp4");
   const [downloadFileName, setDownloadFileName] = useState("output.mp4");
@@ -28,10 +24,12 @@ const App = () => {
 
   const [validationResult, setValidationResult] = useState("");
 
-  const handleExec = async () => {
+  const handleExec = async (file) => {
     if (!file) {
       return;
     }
+    console.log(file);
+
     setOutputFiles([]);
     setHref("");
     setDownloadFileName("");
@@ -39,31 +37,30 @@ const App = () => {
     try {
       setTip("Loading file into browser");
       setSpinning(true);
-      for (const fileItem of fileList) {
-        ffmpeg.current.FS(
-          "writeFile",
-          fileItem.name,
-          await fetchFile(fileItem)
-        );
-      }
-      currentFSls.current = ffmpeg.current.FS("readdir", ".");
+      /**
+       * @type {FFmpeg}
+       */
+      let ffmpegImplementation = ffmpeg.current;
+      ffmpegImplementation.FS(
+        "writeFile",
+        file.name,
+        await fetchFile(file)
+      );
+      currentFSls.current = ffmpegImplementation.FS("readdir", ".");
       setTip("Validating video file...");
 
       // Run FFmpeg with parameters to validate the video file
-      let outputText = "";
       try {
-        outputText = await ffmpeg.current.run(
+        await ffmpegImplementation.run(
           '-i',
-          name,
+          file.name,
           '-v', 'error', '-f', 'null',
           '-'
         );
-        // If we reach here with no errors, the video is valid
-        setValidationResult("✅ Video file is valid and can be processed by FFmpeg.");
-        message.success("Video validation completed successfully", 5);
+        setValidationResult((prev) => prev ? prev : "✅ Video file is valid");
+        message.success("Video validation completed", 5);
       } catch (ffmpegError) {
         // If FFmpeg throws an error, the video might have issues
-        outputText = ffmpegError.message || "Unknown error occurred during validation";
         setValidationResult("❌ Video file has issues: " + outputText);
         message.warning("Video has some issues. See details below.", 5);
       }
@@ -114,10 +111,19 @@ const App = () => {
       ffmpeg.current = createFFmpeg({
         log: true,
         corePath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
+        logger: (log) => {
+          console.error(log);
+        },
+        progress: ({ ratio }) => {
+          console.log(ratio);
+          setTip(numerify(ratio, "0.0%"));
+        }
       });
-      ffmpeg.current.setProgress(({ ratio }) => {
-        console.log(ratio);
-        setTip(numerify(ratio, "0.0%"));
+      ffmpeg.current.setLogger(({ type, message }) => {
+          if (type === "fferr") {
+            setValidationResult((prev) => `❌ ${prev}
+${message}`);
+          }
       });
       setTip("ffmpeg static resource loading...");
       setSpinning(true);
@@ -162,8 +168,6 @@ const App = () => {
       <p align="center" style={{ color: "gray", marginBottom: "20px" }}>
         A simple tool to check if your video files are valid
       </p>
-
-      <h4>Upload your video file</h4>
       <p style={{ color: "gray" }}>
         Your file will not be uploaded to any server, it will only be processed in your
         browser for validation
@@ -171,14 +175,9 @@ const App = () => {
       <Dragger
         multiple={false}
         beforeUpload={async (file, fileList) => {
-          setFile(file);
-          setFileList([file]);
-          setName(file.name);
-
-          // Automatically run validation when file is uploaded
-          setTimeout(() => {
-            handleExec();
-          }, 100);
+          console.log('Dragger');
+          console.log(file, fileList);
+          handleExec(file);
 
           return false;
         }}
@@ -199,8 +198,12 @@ const App = () => {
         </div>
       )}
 
+      <Button type="primary" onClick={handleExec} style={{marginTop: "10px"}}>
+        Validate Video
+      </Button>
+
       {/* Hidden section for advanced users - can be toggled if needed */}
-      <div style={{ display: 'none' }}>
+      <div style={{"display": "none"}}>
         <h4>Advanced Options</h4>
         <div className="exec">
           ffmpeg
@@ -228,9 +231,6 @@ const App = () => {
             ffmpeg {inputOptions} {name} {outputOptions} {output}
           </div>
         </div>
-        <Button type="primary" disabled={!Boolean(file)} onClick={handleExec}>
-          Validate Again
-        </Button>
       </div>
 
       {/* Hidden download section - not needed for simple validation */}
@@ -253,7 +253,7 @@ const App = () => {
           placeholder="Please enter the download file name"
           onChange={(event) => setFiles(event.target.value)}
         />
-        <Button type="primary" disabled={!Boolean(file)} onClick={handleGetFiles}>
+        <Button type="primary" onClick={handleGetFiles}>
           confirm
         </Button>
         <br />
@@ -267,11 +267,6 @@ const App = () => {
           </div>
         ))}
       </div>
-
-      <br />
-      <br />
-
-      <Analytics />
     </div>
   );
 };

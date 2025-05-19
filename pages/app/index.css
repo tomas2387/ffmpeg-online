@@ -29,9 +29,12 @@
 }
 
 .page-app {
-  width: 500px;
+  width: 90%;
   padding-top: 20px;
   margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
 .ant-upload.ant-upload {
